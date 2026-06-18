@@ -533,7 +533,7 @@ function applyFilters() {
   const status  = $status.value;
 
   filtered = allRows.filter(r => {
-    if (search  && !r.version.includes(search))  return false;
+    if (search  && !r.version.startsWith(search)) return false;
     if (os      && r.os !== os)                   return false;
     if (arch    && r.arch !== arch)               return false;
     if (status  && r.status !== status)           return false;
