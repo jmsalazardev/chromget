@@ -8,6 +8,11 @@
 
 ---
 
+> [!WARNING]
+> **This is a pre-release version.** `chromget` is still under active development and no stable release has been published yet. APIs, CLI flags, and behavior may change without notice. Use it at your own risk and feel free to [open an issue](https://github.com/jmsalazardev/chromget/issues) if you find bugs or have suggestions.
+
+---
+
 ## 🌐 Browse Releases Online
 
 Don't want to use the CLI? You can browse, filter, and download Chrome binaries directly from your browser:
