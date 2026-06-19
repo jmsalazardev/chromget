@@ -97,6 +97,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      white-space: nowrap;
     }
     .stat-pill strong { color: var(--text); font-weight: 600; }
 
@@ -189,7 +190,8 @@
     .table-wrap {
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      overflow: hidden;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
     table { width: 100%; border-collapse: collapse; }
     thead { background: var(--surface); }
@@ -224,8 +226,18 @@
     .td-version {
       font-family: 'JetBrains Mono', monospace;
       font-size: 12.5px;
-      color: var(--accent);
       font-weight: 500;
+    }
+    .td-version a {
+      color: var(--accent);
+      text-decoration: none;
+      transition: color .2s, opacity .2s;
+      display: inline-block;
+    }
+    .td-version a:hover {
+      color: #7ca6ff;
+      text-decoration: underline;
+      text-underline-offset: 3px;
     }
     .badge {
       display: inline-flex;
@@ -248,25 +260,7 @@
     .badge-status-online  { background: rgba(62,207,142,.1); color: var(--green); border: 1px solid rgba(62,207,142,.2); }
     .badge-status-offline { background: rgba(247,110,110,.1); color: var(--red);  border: 1px solid rgba(247,110,110,.2); }
     .badge-status-unknown { background: rgba(100,116,139,.1); color: var(--muted); border: 1px solid rgba(100,116,139,.2); }
-    .size-text { color: var(--muted); font-size: 12px; }
-    .btn-dl {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border: none;
-      border-radius: 7px;
-      color: #fff;
-      cursor: pointer;
-      font-family: 'Inter', sans-serif;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 7px 14px;
-      text-decoration: none;
-      transition: opacity .2s, transform .15s;
-      white-space: nowrap;
-    }
-    .btn-dl:hover { opacity: .85; transform: translateY(-1px); }
+    .size-text { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
     /* ─── PAGINATION ────────────────────────────────────── */
     .pagination {
@@ -319,6 +313,22 @@
 
     /* ─── RESPONSIVE ────────────────────────────────────── */
     @media (max-width: 768px) {
+      header {
+        padding: 16px;
+      }
+      .header-inner {
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        text-align: center;
+      }
+      .header-stats {
+        margin-left: 0;
+        justify-content: center;
+        width: 100%;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
       main { padding: 16px; }
       .filters { padding: 16px; gap: 12px; }
       .filter-group { min-width: 100%; }
@@ -405,7 +415,6 @@
             <th>OS</th>
             <th>Arch</th>
             <th id="th-size" data-col="size">Size <em class="sort-arrow">↕</em></th>
-            <th>Download</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -578,7 +587,11 @@ function render() {
   // rows
   $tbody.innerHTML = slice.map(r => `
     <tr>
-      <td class="td-version">${escHtml(r.version)}</td>
+      <td class="td-version">
+        <a href="${escHtml(r.url)}" target="_blank" rel="noopener" download>
+          ${escHtml(r.version)}
+        </a>
+      </td>
       <td>
         <span class="badge ${osBadgeClass(r.os)}">
           ${osLabel(r.os)}
@@ -586,11 +599,6 @@ function render() {
       </td>
       <td><span class="badge badge-arch">${escHtml(r.arch)}</span></td>
       <td class="size-text">${formatBytes(r.size)}</td>
-      <td>
-        <a class="btn-dl" href="${escHtml(r.url)}" target="_blank" rel="noopener" download>
-          ↓ Download
-        </a>
-      </td>
     </tr>
   `).join('');
 
