@@ -33,8 +33,44 @@ export async function unpackCrxFile(
   crxPath: string,
   zipPath: string,
 ): Promise<void> {
-  const crxBuffer = await fs.promises.readFile(crxPath);
+  let crxBuffer: Buffer | null = null;
+  let attempts = 0;
+  while (attempts < 20) {
+    try {
+      crxBuffer = await fs.promises.readFile(crxPath);
+      break;
+    } catch (err: any) {
+      if (err.code === "ENOENT" && attempts < 19) {
+        attempts++;
+        await new Promise((r) => setTimeout(r, 100));
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  if (!crxBuffer) {
+    throw new Error(`Failed to read CRX file at ${crxPath}`);
+  }
+
   const zipBuffer = crxToZip(crxBuffer);
   await fs.promises.writeFile(zipPath, zipBuffer);
-  await fs.promises.unlink(crxPath);
+
+  let unlinkAttempts = 0;
+  while (unlinkAttempts < 5) {
+    try {
+      await fs.promises.unlink(crxPath);
+      break;
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        break;
+      }
+      if (unlinkAttempts < 4) {
+        unlinkAttempts++;
+        await new Promise((r) => setTimeout(r, 100));
+      } else {
+        throw err;
+      }
+    }
+  }
 }

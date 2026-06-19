@@ -373,14 +373,7 @@
         <option value="arm64">ARM64</option>
       </select>
     </div>
-    <div class="filter-group">
-      <label class="filter-label" for="filter-status">Status</label>
-      <select id="filter-status" class="filter-select">
-        <option value="">All</option>
-        <option value="online">Online</option>
-        <option value="offline">Offline</option>
-      </select>
-    </div>
+
     <button class="btn-reset" id="btn-reset">✕ Reset</button>
   </div>
 
@@ -412,7 +405,6 @@
             <th>OS</th>
             <th>Arch</th>
             <th id="th-size" data-col="size">Size <em class="sort-arrow">↕</em></th>
-            <th>Status</th>
             <th>Download</th>
           </tr>
         </thead>
@@ -425,11 +417,10 @@
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
-const DATA_URL = 'https://raw.githubusercontent.com/jmsalazardev/chromget/main/src/resources/chrome.json';
 const PAGE_SIZE = 50;
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let allRows = [];      // { version, platform, os, arch, url, status, size, checkedAt }
+let allRows = [];      // { version, platform, os, arch, url, size }
 let filtered = [];
 let sortCol = 'version';
 let sortDir = -1;      // -1 = desc (newest first)
@@ -444,35 +435,18 @@ const $pagination= document.getElementById('pagination');
 const $search    = document.getElementById('search');
 const $os        = document.getElementById('filter-os');
 const $arch      = document.getElementById('filter-arch');
-const $status    = document.getElementById('filter-status');
 const $reset     = document.getElementById('btn-reset');
 const $count     = document.getElementById('result-count');
 const $pageInfo  = document.getElementById('page-info');
 const $statVer   = document.getElementById('stat-versions');
 const $statEnt   = document.getElementById('stat-entries');
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function parseOs(platform) {
-  if (platform.startsWith('win'))   return 'win';
-  if (platform.startsWith('mac'))   return 'mac';
-  if (platform.startsWith('linux')) return 'linux';
-  return 'unknown';
-}
-function parseArch(platform) {
-  if (platform.includes('arm64')) return 'arm64';
-  if (platform.includes('x64'))   return 'x64';
-  if (platform.includes('x86'))   return 'x86';
-  return platform;
-}
 function osLabel(os) {
   return { win: 'Windows', mac: 'macOS', linux: 'Linux' }[os] ?? os;
 }
 function osBadgeClass(os) {
   return { win: 'badge-os-win', mac: 'badge-os-mac', linux: 'badge-os-linux' }[os] ?? '';
 }
-function osEmoji(os) {
-  return { win: '🪟', mac: '🍎', linux: '🐧' }[os] ?? '';
-}
+
 function formatBytes(bytes) {
   if (!bytes) return '—';
   const mb = bytes / (1024 * 1024);
@@ -493,24 +467,56 @@ function versionSort(a, b) {
 // ── Load data ─────────────────────────────────────────────────────────────────
 async function loadData() {
   try {
-    const res = await fetch(DATA_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-
     const rows = [];
-    for (const [version, platforms] of Object.entries(json)) {
-      for (const [platform, info] of Object.entries(platforms)) {
-        rows.push({
-          version,
-          platform,
-          os:   parseOs(platform),
-          arch: parseArch(platform),
-          url:  info.url,
-          status: info.status ?? 'unknown',
-          size:   info.size ?? 0,
-          checkedAt: info.checkedAt ?? '',
-        });
+    let page = 1;
+    const perPage = 100;
+    
+    while (true) {
+      const url = `https://api.github.com/repos/jmsalazardev/chromget/releases?per_page=${perPage}&page=${page}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const releases = await res.json();
+      if (!Array.isArray(releases) || releases.length === 0) {
+        break;
       }
+      
+      for (const release of releases) {
+        if (Array.isArray(release.assets)) {
+          for (const asset of release.assets) {
+            // Matches chrome_<version>_<os>_<arch>.<ext>
+            // e.g. chrome_147.0.7727.137_linux_x64.rpm
+            const match = asset.name.match(/^chrome_([0-9.]+)_([a-zA-Z0-9]+)_([a-zA-Z0-9_]+)\.([a-zA-Z0-9]+)$/);
+            if (match) {
+              const version = match[1];
+              const osName = match[2]; // win, mac, linux
+              const archName = match[3]; // x86, x64, arm64
+              const ext = match[4]; // exe, deb, rpm, dmg, zip
+              
+              // Format the architecture display: e.g. x64 (deb)
+              let archDisplay = archName;
+              if (osName === 'linux' && ext === 'rpm') {
+                archDisplay = `${archName} (rpm)`;
+              } else if (osName === 'linux' && ext === 'deb') {
+                archDisplay = `${archName} (deb)`;
+              }
+              
+              rows.push({
+                version,
+                platform: `${osName}_${archName}`,
+                os: osName,
+                arch: archDisplay,
+                url: asset.browser_download_url,
+                size: asset.size ?? 0,
+              });
+            }
+          }
+        }
+      }
+      
+      if (releases.length < perPage) {
+        break;
+      }
+      page++;
     }
 
     allRows = rows;
@@ -521,7 +527,7 @@ async function loadData() {
     $loader.style.display = 'none';
     applyFilters();
   } catch (err) {
-    $loader.innerHTML = `<div style="color:var(--red)">⚠️ Failed to load data.<br><small>${err.message}</small></div>`;
+    $loader.innerHTML = `<div style="color:var(--red)">⚠️ Failed to load data from GitHub Releases.<br><small>${err.message}</small></div>`;
   }
 }
 
@@ -530,13 +536,11 @@ function applyFilters() {
   const search  = $search.value.trim().toLowerCase();
   const os      = $os.value;
   const arch    = $arch.value;
-  const status  = $status.value;
 
   filtered = allRows.filter(r => {
     if (search  && !r.version.startsWith(search)) return false;
     if (os      && r.os !== os)                   return false;
-    if (arch    && r.arch !== arch)               return false;
-    if (status  && r.status !== status)           return false;
+    if (arch    && !r.arch.startsWith(arch))      return false;
     return true;
   });
 
@@ -577,16 +581,11 @@ function render() {
       <td class="td-version">${escHtml(r.version)}</td>
       <td>
         <span class="badge ${osBadgeClass(r.os)}">
-          ${osEmoji(r.os)} ${osLabel(r.os)}
+          ${osLabel(r.os)}
         </span>
       </td>
       <td><span class="badge badge-arch">${escHtml(r.arch)}</span></td>
       <td class="size-text">${formatBytes(r.size)}</td>
-      <td>
-        <span class="badge badge-status-${r.status}">
-          ${r.status === 'online' ? '●' : r.status === 'offline' ? '○' : '?'} ${r.status}
-        </span>
-      </td>
       <td>
         <a class="btn-dl" href="${escHtml(r.url)}" target="_blank" rel="noopener" download>
           ↓ Download
@@ -664,12 +663,10 @@ $search.addEventListener('input', () => {
 });
 $os.addEventListener('change', applyFilters);
 $arch.addEventListener('change', applyFilters);
-$status.addEventListener('change', applyFilters);
 $reset.addEventListener('click', () => {
   $search.value = '';
   $os.value = '';
   $arch.value = '';
-  $status.value = '';
   applyFilters();
 });
 

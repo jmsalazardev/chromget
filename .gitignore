@@ -25,3 +25,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Project downloads and cache
+chrome-downloads/
+chrome-downloads.json

@@ -57,6 +57,16 @@ export async function downloadFile(
     throw new Error(`HTTP ${statusCode} response when downloading ${url}`);
   }
 
+  // Reject HTML responses (e.g. redirect/landing pages that return 200 with HTML)
+  const contentType = res.headers["content-type"] ?? "";
+  if (contentType.startsWith("text/html")) {
+    res.resume();
+    throw new Error(
+      `Server returned HTML instead of a binary file (Content-Type: ${contentType}). ` +
+        `The URL may be a redirect page that requires a browser.`,
+    );
+  }
+
   // Try to determine expected total size
   let total: number | null = null;
   if (statusCode === 200 && res.headers["content-length"]) {
@@ -118,5 +128,55 @@ export async function downloadFile(
   return {
     status: resumed ? "resumed" : "downloaded",
     size: finalSize,
+    mirrorUrl: url,
   };
+}
+
+/**
+ * Attempts to download from a list of mirror URLs in order.
+ * Returns the result from the first mirror that succeeds.
+ * Throws with all errors if every mirror fails.
+ */
+export async function downloadWithFallback(
+  mirrors: string[],
+  finalPath: string,
+  timeoutMs = 60_000,
+  hooks: DownloadHooks = {},
+  onMirrorAttempt?: (mirrorUrl: string, index: number, total: number) => void,
+  onMirrorFail?: (mirrorUrl: string, error: string) => void,
+): Promise<DownloadResult> {
+  // If the final file already exists, skip immediately
+  if (fs.existsSync(finalPath)) {
+    const size = fs.statSync(finalPath).size;
+    return { status: "skipped", size };
+  }
+
+  const errors: { url: string; error: string }[] = [];
+
+  for (let i = 0; i < mirrors.length; i++) {
+    const mirror = mirrors[i]!;
+
+    onMirrorAttempt?.(mirror, i, mirrors.length);
+
+    // Clean up any .part file from a previous failed mirror attempt
+    const partPath = finalPath + ".part";
+    if (i > 0 && fs.existsSync(partPath)) {
+      fs.unlinkSync(partPath);
+    }
+
+    try {
+      const result = await downloadFile(mirror, finalPath, timeoutMs, hooks);
+      return { ...result, mirrorUrl: mirror };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      errors.push({ url: mirror, error: msg });
+      onMirrorFail?.(mirror, msg);
+    }
+  }
+
+  // All mirrors failed
+  const summary = errors
+    .map((e, i) => `  Mirror ${i + 1}: ${e.url}\n    → ${e.error}`)
+    .join("\n");
+  throw new Error(`All ${mirrors.length} mirrors failed:\n${summary}`);
 }

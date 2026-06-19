@@ -1,4 +1,4 @@
-import type { ChromeDatabase, OsTarget, MajorPlan } from "./types.js";
+import type { ChromeDatabase, OsTarget, MajorPlan, PickInfo } from "./types.js";
 
 /**
  * Parses a version string into an array of integers.
@@ -31,8 +31,54 @@ export function majorOf(v: string): number {
 }
 
 /**
+ * Domains whose URLs are excluded from the download plan.
+ * These hosts are known to serve redirect/landing pages instead of direct binaries.
+ */
+export const BLOCKED_DOMAINS = [
+  "google-chrome.en.uptodown.com",
+  "uptodown.com",
+ ] as const;
+
+/**
+ * Returns true if the URL's hostname is NOT in the blocked domains list.
+ */
+export function isUrlAllowed(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return !BLOCKED_DOMAINS.some(
+      (blocked) => hostname === blocked || hostname.endsWith(`.${blocked}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Filters and returns allowed mirrors.
+ */
+export function rankMirrors(mirrors: string[]): string[] {
+  return mirrors.filter((url) => isUrlAllowed(url));
+}
+
+/**
+ * Adds a mirror to an array, avoiding duplicate URLs.
+ */
+export function addMirror(
+  existing: string[] | undefined,
+  url: string,
+): string[] {
+  if (!existing || existing.length === 0) {
+    return [url];
+  }
+  if (existing.includes(url)) {
+    return existing;
+  }
+  return [...existing, url];
+}
+
+/**
  * Builds the download plan based on available versions, target majors, and operating systems.
- * It selects the latest version within each major that contains the package for a specific OS.
+ * Returns all versions within each major that have at least one usable mirror, sorted descendingly.
  */
 export function buildPlan(
   versions: ChromeDatabase,
@@ -51,9 +97,7 @@ export function buildPlan(
     list.push(ver);
   }
 
-  // Sort majors in descending order
   const majors = [...byMajor.keys()].sort((a, b) => b - a);
-
   const plan: MajorPlan[] = [];
 
   for (const major of majors) {
@@ -61,21 +105,22 @@ export function buildPlan(
       continue;
     }
 
-    // Sort patches from newest to oldest
     const verList = byMajor.get(major)!.sort((a, b) => compareVersions(b, a));
-
     const picks: MajorPlan["picks"] = {};
 
     for (const os of osTargets) {
-      // Find the first patch (newest) that has a URL for this OS
-      const found = verList.find((v) => {
-        const verObj = versions[v];
-        return verObj && verObj[os] !== undefined;
-      });
-
-      if (found) {
-        const url = versions[found]![os]!.url;
-        picks[os] = { version: found, url };
+      const candidates: PickInfo[] = [];
+      for (const v of verList) {
+        const mirrors = versions[v]?.[os] as string[] | undefined;
+        if (mirrors && Array.isArray(mirrors)) {
+          const ranked = rankMirrors(mirrors);
+          if (ranked.length > 0) {
+            candidates.push({ version: v, mirrors: ranked });
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        picks[os] = candidates;
       }
     }
 

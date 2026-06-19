@@ -1,6 +1,32 @@
 import https from "node:https";
 import http, { type IncomingMessage } from "node:http";
 
+const hostPromises = new Map<string, Promise<void>>();
+
+/**
+ * Throttles requests to specific hosts (like slimjet.com) to avoid rate limits/503s.
+ */
+async function throttleRequest(url: string): Promise<void> {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return;
+  }
+
+  // Apply a 1500ms delay for any host containing "slimjet"
+  const delay = hostname.includes("slimjet") ? 1500 : 0;
+  if (delay <= 0) return;
+
+  const previousPromise = hostPromises.get(hostname) ?? Promise.resolve();
+  const nextPromise = previousPromise.then(async () => {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  });
+  hostPromises.set(hostname, nextPromise);
+
+  await previousPromise;
+}
+
 /**
  * Promise-based HTTP(S) request wrapper that handles timeouts and follows up to 10 redirects.
  */
@@ -11,9 +37,15 @@ export function httpRequest(
   method = "GET",
   redirectCount = 0,
 ): Promise<IncomingMessage> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     if (redirectCount > 10) {
       return reject(new Error("Too many redirects"));
+    }
+
+    try {
+      await throttleRequest(url);
+    } catch (err) {
+      return reject(err);
     }
 
     const isHttps = url.startsWith("https");

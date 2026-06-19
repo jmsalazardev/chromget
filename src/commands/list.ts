@@ -1,8 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import { compareVersions, majorOf } from "../lib/versions.js";
+import { compareVersions, majorOf, isUrlAllowed } from "../lib/versions.js";
 import chromeJson from "../resources/chrome.json" with { type: "json" };
-import type { ChromeDatabase, ChromeRelease, OsTarget } from "../lib/types.js";
+import type { ChromeDatabase, OsTarget } from "../lib/types.js";
 
 interface ListCommandOptions {
   online?: boolean;
@@ -10,18 +12,60 @@ interface ListCommandOptions {
 }
 
 /**
+ * Returns the best status across allowed mirrors for an OS entry.
+ */
+function bestMirrorStatus(
+  mirrors: string[] | undefined,
+  downloads: Record<string, any>,
+): "online" | "offline" | "unchecked" | null {
+  if (!mirrors || mirrors.length === 0) return null;
+
+  const allowed = mirrors.filter((url) => isUrlAllowed(url));
+  if (allowed.length === 0) return null;
+
+  let allOffline = true;
+  let hasOnline = false;
+
+  for (const url of allowed) {
+    const meta = downloads[url];
+    if (meta) {
+      if (meta.status === "online") {
+        hasOnline = true;
+        allOffline = false;
+      } else if (meta.status !== "offline") {
+        allOffline = false;
+      }
+    } else {
+      allOffline = false;
+    }
+  }
+
+  if (hasOnline) return "online";
+  if (allOffline) return "offline";
+  return "unchecked";
+}
+
+/**
  * Lists Chrome versions available in chrome.json in a formatted ASCII table.
- * Grouped by Major version, showing the latest patch version for each platform.
  */
 export async function runList(
   majorsArg: number[],
-  options: ListCommandOptions
+  options: ListCommandOptions,
 ): Promise<void> {
   p.intro(pc.bgGreen(pc.black(" chromget list ")));
 
   const chromeDb = chromeJson as unknown as ChromeDatabase;
 
-  // 1. Group available versions by major version: Map<major, versionKeys[]>
+  const downloadsPath = path.resolve("chrome-downloads.json");
+  let downloads: Record<string, any> = {};
+  if (fs.existsSync(downloadsPath)) {
+    try {
+      downloads = JSON.parse(fs.readFileSync(downloadsPath, "utf8"));
+    } catch {
+      // ignore
+    }
+  }
+
   const byMajor = new Map<number, string[]>();
   for (const ver of Object.keys(chromeDb)) {
     const m = majorOf(ver);
@@ -33,31 +77,29 @@ export async function runList(
     list.push(ver);
   }
 
-  // Sort patch versions for each major in descending order
   for (const [major, list] of byMajor.entries()) {
     list.sort((a, b) => compareVersions(b, a));
   }
 
-  // Sort major versions in descending order
   let majors = Array.from(byMajor.keys()).sort((a, b) => b - a);
 
-  // 2. Filter majors if specified via arguments
   if (majorsArg.length > 0) {
     majors = majors.filter((m) => majorsArg.includes(m));
   }
 
-  // 3. Filter by online/offline status if options are enabled
   if (options.online || options.offline) {
     majors = majors.filter((m) => {
       const patches = byMajor.get(m) || [];
       return patches.some((v) => {
         const targets = chromeDb[v];
         if (!targets) return false;
-        return Object.entries(targets).some(([key, release]) => {
-          if (key === "releaseDate" || !release) return false;
-          const r = release as ChromeRelease;
-          if (options.online && r.status === "online") return true;
-          if (options.offline && r.status === "offline") return true;
+        return Object.entries(targets).some(([key, value]) => {
+          if (key === "releaseDate" || !value) return false;
+          const mirrors = value as string[];
+          if (!Array.isArray(mirrors)) return false;
+          const status = bestMirrorStatus(mirrors, downloads);
+          if (options.online && status === "online") return true;
+          if (options.offline && status === "offline") return true;
           return false;
         });
       });
@@ -70,7 +112,6 @@ export async function runList(
     return;
   }
 
-  // Column definitions with specific layout widths
   const columns: { label: string; key: string; width: number }[] = [
     { label: "Version", key: "version", width: 8 },
     { label: "Release Date", key: "releaseDate", width: 12 },
@@ -82,17 +123,14 @@ export async function runList(
     { label: "linux_rpm", key: "linux_x64_rpm", width: 16 },
   ];
 
-  // Formatting padding helper (applied prior to color coding to prevent width misalignment)
   const pad = (str: string, width: number): string => {
     return str.padEnd(width).slice(0, width);
   };
 
-  // Build header line
   const headerLine = columns
     .map((col) => pc.bold(pad(col.label, col.width)))
     .join(" | ");
-  
-  // Build separator line
+
   const separator = columns
     .map((col) => "─".repeat(col.width))
     .join("─┼─");
@@ -103,8 +141,7 @@ export async function runList(
 
   for (const major of majors) {
     const rowCells: string[] = [];
-    
-    // Add version column (major)
+
     const versionCol = columns[0];
     if (versionCol) {
       rowCells.push(pad(String(major), versionCol.width));
@@ -112,7 +149,6 @@ export async function runList(
 
     const patches = byMajor.get(major) || [];
 
-    // Add target status columns
     for (let i = 1; i < columns.length; i++) {
       const col = columns[i];
       if (!col) continue;
@@ -130,35 +166,30 @@ export async function runList(
 
       const os = col.key;
 
-      // 1. Find the newest patch where status is NOT offline
       const foundAvailablePatch = patches.find((v) => {
-        const release = chromeDb[v]?.[os as OsTarget];
-        return release !== undefined && release.status !== "offline";
+        const mirrors = chromeDb[v]?.[os as OsTarget] as string[] | undefined;
+        const status = bestMirrorStatus(mirrors, downloads);
+        return status === "online" || status === "unchecked";
       });
 
       let cellText = "";
       let colorFn = (str: string) => str;
 
       if (foundAvailablePatch) {
-        const release = chromeDb[foundAvailablePatch]![os as OsTarget]!;
         cellText = foundAvailablePatch;
-        if (release.status === "online") {
-          colorFn = pc.green;
-        } else {
-          colorFn = pc.yellow; // unchecked
-        }
+        const mirrors = chromeDb[foundAvailablePatch]![os as OsTarget] as string[];
+        const status = bestMirrorStatus(mirrors, downloads);
+        colorFn = status === "online" ? pc.green : pc.yellow;
       } else {
-        // 2. Find the newest patch where status IS offline
         const foundOfflinePatch = patches.find((v) => {
-          const release = chromeDb[v]?.[os as OsTarget];
-          return release !== undefined && release.status === "offline";
+          const mirrors = chromeDb[v]?.[os as OsTarget] as string[] | undefined;
+          return bestMirrorStatus(mirrors, downloads) === "offline";
         });
 
         if (foundOfflinePatch) {
           cellText = foundOfflinePatch;
           colorFn = pc.red;
         } else {
-          // 3. No patch exists for this platform
           cellText = "-";
           colorFn = pc.dim;
         }

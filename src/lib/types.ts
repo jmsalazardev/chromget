@@ -8,42 +8,43 @@ export const OS_TARGETS = [
 ] as const;
 export type OsTarget = (typeof OS_TARGETS)[number];
 
-export interface ChromeRelease {
-  url: string;
-  status?: "online" | "offline";
-  checkedAt?: string;
-  size?: number | null;
-  error?: string;
-}
-
+/**
+ * The database of all Chrome versions keyed by full version string.
+ * Each OS target maps directly to an array of mirror URL strings.
+ */
 export interface ChromeDatabase {
   [version: string]: {
     releaseDate?: string;
-    win_x86?: ChromeRelease;
-    win_x64?: ChromeRelease;
-    mac_x64?: ChromeRelease;
-    mac_arm64?: ChromeRelease;
-    linux_x64?: ChromeRelease;
-    linux_x64_rpm?: ChromeRelease;
+    win_x86?: string[];
+    win_x64?: string[];
+    mac_x64?: string[];
+    mac_arm64?: string[];
+    linux_x64?: string[];
+    linux_x64_rpm?: string[];
     [os: string]: any;
   };
 }
 
+/**
+ * Information about a selected version for download.
+ * Includes an ordered list of mirror URL strings to try.
+ */
 export interface PickInfo {
   version: string;
-  url: string;
+  mirrors: string[];
 }
 
 export interface MajorPlan {
   major: number;
   picks: {
-    [os in OsTarget]?: PickInfo;
+    [os in OsTarget]?: PickInfo[];
   };
 }
 
 export interface DownloadResult {
   status: "downloaded" | "resumed" | "skipped" | "failed";
   size: number;
+  mirrorUrl?: string;
 }
 
 export interface FailureInfo {
@@ -68,6 +69,3 @@ export interface DownloadOptions {
   onlyMajors: number[];
   timeoutMs: number;
 }
-
-
-

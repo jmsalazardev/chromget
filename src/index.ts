@@ -33,7 +33,7 @@ program
   .option("-t, --timeout <ms>", "Request timeout in milliseconds")
   .option(
     "--dry-run",
-    "Verify link availability on the server without downloading files",
+    "Preview the download plan and selected mirrors without executing any requests",
   )
   .action(
     async (
