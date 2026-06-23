@@ -27,6 +27,7 @@
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",
     "@types/node": "^22.10.1",
+    "puppeteer": "^25.1.0",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

@@ -3,6 +3,7 @@ import path from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { compareVersions, majorOf, isUrlAllowed } from "../lib/versions.js";
+import { fetchDatabaseFromGitHub } from "../lib/github.js";
 import chromeJson from "../resources/chrome.json" with { type: "json" };
 import type { ChromeDatabase, OsTarget } from "../lib/types.js";
 
@@ -54,7 +55,17 @@ export async function runList(
 ): Promise<void> {
   p.intro(pc.bgGreen(pc.black(" chromget list ")));
 
-  const chromeDb = chromeJson as unknown as ChromeDatabase;
+  const spinner = p.spinner();
+  spinner.start("Fetching available Chrome releases from GitHub...");
+  let chromeDb: ChromeDatabase;
+  try {
+    chromeDb = await fetchDatabaseFromGitHub();
+    spinner.stop("Successfully synchronized with GitHub Releases.");
+  } catch (err: any) {
+    spinner.stop("Failed to synchronize with GitHub Releases. Using offline fallback.", 1);
+    p.log.warn(pc.yellow(`Reason: ${err.message}`));
+    chromeDb = chromeJson as unknown as ChromeDatabase;
+  }
 
   const downloadsPath = path.resolve("chrome-downloads.json");
   let downloads: Record<string, any> = {};

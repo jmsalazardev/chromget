@@ -1,8 +1,6 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import { runDownload } from "./commands/download.js";
-import { runImport } from "./commands/import.js";
-import { runCheck } from "./commands/check.js";
 import { runList } from "./commands/list.js";
 
 const program = new Command();
@@ -51,22 +49,6 @@ program
     },
   );
 
-program
-  .command("import")
-  .description("Scrape and import Chrome versions from Slimjet archive page")
-  .action(async () => {
-    await runImport();
-  });
-
-program
-  .command("check")
-  .description("Verify health status of all Chrome download URLs and save to chrome.json")
-  .option("--force", "Force verification of all URLs, ignoring the 1-hour cache skip logic")
-  .option("-c, --concurrency <number>", "Number of concurrent requests")
-  .option("-t, --timeout <ms>", "Request timeout in milliseconds")
-  .action(async (options) => {
-    await runCheck(options);
-  });
 
 program
   .command("list")

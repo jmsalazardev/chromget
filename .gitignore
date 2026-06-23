@@ -29,3 +29,7 @@ Thumbs.db
 # Project downloads and cache
 chrome-downloads/
 chrome-downloads.json
+
+# Local backups
+backup/
+

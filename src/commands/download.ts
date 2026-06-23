@@ -16,6 +16,7 @@ import type {
   OsTarget,
 } from "../lib/types.js";
 import { cancel } from "./prompts.js";
+import { fetchDatabaseFromGitHub } from "../lib/github.js";
 import chromeJson from "../resources/chrome.json" with { type: "json" };
 
 export interface DownloadCommandOptions {
@@ -131,7 +132,17 @@ export async function runDownload(
 
   const outputDir = path.resolve(customOutputDir || "chrome-downloads");
 
-  const versions = chromeJson as unknown as ChromeDatabase;
+  const spinner = p.spinner();
+  spinner.start("Fetching available Chrome releases from GitHub...");
+  let versions: ChromeDatabase;
+  try {
+    versions = await fetchDatabaseFromGitHub();
+    spinner.stop("Successfully synchronized with GitHub Releases.");
+  } catch (err: any) {
+    spinner.stop("Failed to synchronize with GitHub Releases. Using offline fallback.", 1);
+    p.log.warn(pc.yellow(`Reason: ${err.message}`));
+    versions = chromeJson as unknown as ChromeDatabase;
+  }
 
   const plan = buildPlan(versions, onlyMajors, osTargets);
   if (plan.length === 0) {
