@@ -1,31 +1,7 @@
 import https from "node:https";
 import http, { type IncomingMessage } from "node:http";
 
-const hostPromises = new Map<string, Promise<void>>();
 
-/**
- * Throttles requests to specific hosts (like slimjet.com) to avoid rate limits/503s.
- */
-async function throttleRequest(url: string): Promise<void> {
-  let hostname: string;
-  try {
-    hostname = new URL(url).hostname;
-  } catch {
-    return;
-  }
-
-  // Apply a 1500ms delay for any host containing "slimjet"
-  const delay = hostname.includes("slimjet") ? 1500 : 0;
-  if (delay <= 0) return;
-
-  const previousPromise = hostPromises.get(hostname) ?? Promise.resolve();
-  const nextPromise = previousPromise.then(async () => {
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  });
-  hostPromises.set(hostname, nextPromise);
-
-  await previousPromise;
-}
 
 /**
  * Promise-based HTTP(S) request wrapper that handles timeouts and follows up to 10 redirects.
@@ -40,12 +16,6 @@ export function httpRequest(
   return new Promise(async (resolve, reject) => {
     if (redirectCount > 10) {
       return reject(new Error("Too many redirects"));
-    }
-
-    try {
-      await throttleRequest(url);
-    } catch (err) {
-      return reject(err);
     }
 
     const isHttps = url.startsWith("https");
@@ -126,68 +96,4 @@ export async function getText(url: string, timeoutMs = 60_000): Promise<string> 
 }
 
 
-/**
- * Verify if a URL is online using a HEAD request, falling back to GET with Range,
- * and finally a plain GET for servers that block HEAD/Range (e.g. Slimjet returns 503).
- */
-export async function checkUrl(
-  url: string,
-  timeoutMs = 15_000,
-): Promise<boolean> {
-  // 1. HEAD request
-  try {
-    const res = await httpRequest(
-      url,
-      { "User-Agent": BROWSER_USER_AGENT },
-      timeoutMs,
-      "HEAD",
-    );
-    res.resume();
-    const status = res.statusCode ?? 500;
-    if (status >= 200 && status < 400) {
-      return true;
-    }
-  } catch {
-    // Ignore and fall back
-  }
-
-  // 2. GET with Range
-  try {
-    const res = await httpRequest(
-      url,
-      { 
-        "User-Agent": BROWSER_USER_AGENT,
-        "Range": "bytes=0-0"
-      },
-      timeoutMs,
-      "GET",
-    );
-    const status = res.statusCode ?? 500;
-    res.destroy();
-    if (status === 200 || status === 206) {
-      return true;
-    }
-    // If not 503, it's a real error - return false
-    if (status !== 503) {
-      return false;
-    }
-  } catch {
-    // Ignore and fall back
-  }
-
-  // 3. Plain GET (for servers that block HEAD/Range like Slimjet)
-  try {
-    const res = await httpRequest(
-      url,
-      { "User-Agent": BROWSER_USER_AGENT },
-      timeoutMs,
-      "GET",
-    );
-    const status = res.statusCode ?? 500;
-    res.destroy();
-    return status >= 200 && status < 400;
-  } catch {
-    return false;
-  }
-}
 

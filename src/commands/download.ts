@@ -7,7 +7,6 @@ import cliProgress from "cli-progress";
 import { buildPlan } from "../lib/versions.js";
 import { downloadWithFallback } from "../lib/downloader.js";
 import { fmtBytes } from "../lib/format.js";
-import { checkUrl } from "../lib/http.js";
 import { unpackCrxFile } from "../lib/crx.js";
 import type {
   DownloadStats,
@@ -17,7 +16,6 @@ import type {
 } from "../lib/types.js";
 import { cancel } from "./prompts.js";
 import { fetchDatabaseFromGitHub } from "../lib/github.js";
-import chromeJson from "../resources/chrome.json" with { type: "json" };
 
 export interface DownloadCommandOptions {
   output?: string;
@@ -139,9 +137,9 @@ export async function runDownload(
     versions = await fetchDatabaseFromGitHub();
     spinner.stop("Successfully synchronized with GitHub Releases.");
   } catch (err: any) {
-    spinner.stop("Failed to synchronize with GitHub Releases. Using offline fallback.", 1);
-    p.log.warn(pc.yellow(`Reason: ${err.message}`));
-    versions = chromeJson as unknown as ChromeDatabase;
+    spinner.stop("Failed to synchronize with GitHub Releases.", 1);
+    p.log.error(pc.red(`Fatal Error: ${err.message}`));
+    throw err;
   }
 
   const plan = buildPlan(versions, onlyMajors, osTargets);
@@ -223,11 +221,7 @@ export async function runDownload(
           );
           stats.skipped++;
           
-          // Backfill missing hash if any
-          const firstMirrorUrl = pick.mirrors[0];
-          if (firstMirrorUrl) {
-            await backfillDownloadMetadata(firstMirrorUrl, fs.statSync(dest).size, dest);
-          }
+          await generateSha256Sidecar(dest);
           
           success = true;
           break;
@@ -326,17 +320,13 @@ export async function runDownload(
               `      ${pc.green("✓")} resumed and completed (${fmtBytes(finalSize)})`,
             );
             stats.resumed++;
-            if (result.mirrorUrl) {
-              await saveDownloadMetadata(result.mirrorUrl, result.size || finalSize, dest);
-            }
+            await generateSha256Sidecar(dest);
           } else {
             p.log.success(
               `      ${pc.green("✓")} downloaded (${fmtBytes(finalSize)})`,
             );
             stats.downloaded++;
-            if (result.mirrorUrl) {
-              await saveDownloadMetadata(result.mirrorUrl, result.size || finalSize, dest);
-            }
+            await generateSha256Sidecar(dest);
           }
 
           success = true;
@@ -435,77 +425,17 @@ function calculateSha256(filePath: string): Promise<string> {
 }
 
 /**
- * Saves metadata of a downloaded file to chrome-downloads.json, including its SHA-256 hash.
- */
 /**
- * Saves metadata of a downloaded file to chrome-downloads.json, including its SHA-256 hash.
- * Also generates a .sha256 sidecar file next to the binary.
+ * Generates the .sha256 sidecar file next to the downloaded binary if missing.
  */
-async function saveDownloadMetadata(url: string, size: number, filePath: string): Promise<void> {
-  const metadataPath = path.resolve("chrome-downloads.json");
-  let data: Record<string, any> = {};
-  if (fs.existsSync(metadataPath)) {
-    try {
-      data = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
-    } catch {
-      // ignore
-    }
-  }
-
-  let sha256 = null;
-  try {
-    sha256 = await calculateSha256(filePath);
-    
-    // Write standard sidecar .sha256 file
-    const shaPath = `${filePath}.sha256`;
-    fs.writeFileSync(shaPath, `${sha256}  ${path.basename(filePath)}\n`, "utf8");
-  } catch {
-    // ignore
-  }
-
-  data[url] = {
-    status: "online",
-    checkedAt: new Date().toISOString(),
-    size: size,
-    sha256: sha256,
-    error: null,
-  };
-  fs.writeFileSync(metadataPath, JSON.stringify(data, null, 2), "utf8");
-}
-
-/**
- * Checks and backfills SHA-256 metadata and .sha256 sidecar files for already downloaded files if missing.
- */
-async function backfillDownloadMetadata(url: string, size: number, filePath: string): Promise<void> {
-  const metadataPath = path.resolve("chrome-downloads.json");
-  let data: Record<string, any> = {};
-  if (fs.existsSync(metadataPath)) {
-    try {
-      data = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
-    } catch {
-      // ignore
-    }
-  }
-
+async function generateSha256Sidecar(filePath: string): Promise<void> {
   const shaPath = `${filePath}.sha256`;
-  if (!data[url] || !data[url].sha256 || !fs.existsSync(shaPath)) {
-    let sha256 = null;
+  if (!fs.existsSync(shaPath)) {
     try {
-      sha256 = await calculateSha256(filePath);
-      
-      // Write standard sidecar .sha256 file
+      const sha256 = await calculateSha256(filePath);
       fs.writeFileSync(shaPath, `${sha256}  ${path.basename(filePath)}\n`, "utf8");
     } catch {
       // ignore
     }
-
-    data[url] = {
-      status: "online",
-      checkedAt: data[url]?.checkedAt || new Date().toISOString(),
-      size: size,
-      sha256: sha256,
-      error: null,
-    };
-    fs.writeFileSync(metadataPath, JSON.stringify(data, null, 2), "utf8");
   }
 }

@@ -16,7 +16,9 @@
     "dev": "tsx src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "download": "tsx scripts/download.ts",
+    "upload": "tsx scripts/upload.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.7.0",

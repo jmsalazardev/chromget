@@ -5,28 +5,69 @@ import { execSync } from "node:child_process";
 import https from "node:https";
 import http from "node:http";
 
-// Helper to check if /mnt/e is mounted/available
-function isMntEAvailable(): boolean {
+// Helper to parse .env file
+function loadEnv() {
+  const envPath = path.resolve(".env");
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const match = line.match(/^\s*([^#=]+)\s*=\s*(.*)\s*$/);
+      if (match) {
+        const key = match[1]!.trim();
+        let val = match[2]!.trim();
+        if (val.startsWith('"') && val.endsWith('"')) {
+          val = val.slice(1, -1);
+        } else if (val.startsWith("'") && val.endsWith("'")) {
+          val = val.slice(1, -1);
+        }
+        if (process.env[key] === undefined) {
+          process.env[key] = val;
+        }
+      }
+    }
+  }
+}
+loadEnv();
+
+// Helper to check if destination or its mount point is ready/writable
+function isDestAvailable(destPath: string): boolean {
   try {
-    fs.accessSync("/mnt/e", fs.constants.F_OK);
-    fs.statSync("/mnt/e");
-    return true;
+    const resolved = path.resolve(destPath);
+    
+    // Target WSL/Linux mount points specifically
+    const parts = resolved.split(path.sep);
+    if (parts[1] === "mnt" && parts[2]) {
+      const mountPoint = path.join("/", "mnt", parts[2]);
+      fs.accessSync(mountPoint, fs.constants.F_OK);
+      fs.statSync(mountPoint);
+    }
+    
+    // General parent writability check
+    let current = resolved;
+    while (current && current !== path.dirname(current)) {
+      if (fs.existsSync(current)) {
+        fs.accessSync(current, fs.constants.W_OK);
+        return true;
+      }
+      current = path.dirname(current);
+    }
+    return false;
   } catch {
     return false;
   }
-}
-
-// Verify that mount point /mnt/e is ready
-if (!isMntEAvailable()) {
-  console.error("Error: Mount point '/mnt/e' is not ready.");
-  process.exit(1);
 }
 
 // Parse CLI arguments
 const args = process.argv.slice(2);
 const source = args.find(a => a.startsWith("--source="))?.split("=")[1]?.toLowerCase();
 const osArg = args.find(a => a.startsWith("--os="))?.split("=")[1]?.toLowerCase(); // win, mac, linux
-const dest = args.find(a => a.startsWith("--dest="))?.split("=")[1] || "/mnt/e/chrome-repo";
+const dest = args.find(a => a.startsWith("--dest="))?.split("=")[1] || process.env.CHROME_REPO_DEST || "/mnt/e/chrome-repo";
+
+// Verify that destination is ready
+if (!isDestAvailable(dest)) {
+  console.error(`Error: Destination path '${dest}' is not ready or writable.`);
+  process.exit(1);
+}
 const limitStr = args.find(a => a.startsWith("--limit="))?.split("=")[1];
 const limit = limitStr ? parseInt(limitStr, 10) : Infinity;
 const startStr = args.find(a => a.startsWith("--start="))?.split("=")[1];
@@ -38,7 +79,7 @@ if (!source) {
   console.error("Error: Please specify a download source using the '--source' parameter.");
   console.error("Available sources: slimjet, cft, google, uchicago, uptodown");
   console.error("\nExample: npx tsx scripts/download.ts --source=uchicago --limit=5");
-  process.exit(1);
+  throw new Error("Missing download source parameter.");
 }
 
 interface DownloadItem {
@@ -499,6 +540,9 @@ async function waitForUptodownDownload(dir: string, timeoutMs: number = 300000):
 // ----------------------------------------------------
 
 async function main() {
+  if (!source) {
+    throw new Error("Missing download source parameter.");
+  }
   console.log(`=========================================`);
   console.log(`  Unified Chrome Mirror Downloader Script`);
   console.log(`=========================================`);

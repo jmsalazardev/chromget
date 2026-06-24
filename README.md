@@ -25,12 +25,10 @@ Filter by operating system, architecture, version number, and availability statu
 
 ## Features
 
-- 📦 Download Chrome binaries for **Windows**, **macOS**, and **Linux**
+- 📦 Download Chrome binaries for **Windows**, **macOS**, and **Linux** from GitHub Releases
 - 🔍 Filter by major version, OS, and architecture
 - ⏩ Resume interrupted downloads automatically
-- 🔁 Verify URL health with the `check` command (HEAD → GET fallback)
 - 📋 List all available versions in a formatted table
-- 🌐 Import new releases from the Slimjet archive
 - 🔀 CRX3 → ZIP conversion out of the box
 - 🖥️ Interactive prompts when no arguments are provided
 
@@ -127,13 +125,6 @@ chromget list [majors...] [options]
 |----------|-------------|
 | `[majors...]` | Filter by specific major versions (e.g. `148 120`) |
 
-**Options**
-
-| Flag | Description |
-|------|-------------|
-| `--online` | Only show majors with at least one online platform |
-| `--offline` | Only show majors with at least one offline platform |
-
 **Examples**
 
 ```bash
@@ -142,52 +133,6 @@ chromget list
 
 # List only version 148
 chromget list 148
-
-# List all versions with at least one online platform
-chromget list --online
-```
-
----
-
-### `check`
-
-Verify the health status of all download URLs in the local `chrome.json` database.
-Uses HEAD → GET with Range → plain GET fallback for maximum compatibility.
-Results are cached for 1 hour to avoid redundant requests.
-
-```bash
-chromget check [options]
-```
-
-**Options**
-
-| Flag | Description |
-|------|-------------|
-| `--force` | Re-check all URLs, ignoring the 1-hour cache |
-| `-c, --concurrency <n>` | Number of concurrent requests (default: `10`) |
-| `-t, --timeout <ms>` | Request timeout in milliseconds (default: `10000`) |
-
-**Examples**
-
-```bash
-# Check all URLs (skips those verified in the last hour)
-chromget check
-
-# Force re-check everything with 20 concurrent requests
-chromget check --force --concurrency 20
-
-# Use a shorter timeout
-chromget check --timeout 5000
-```
-
----
-
-### `import`
-
-Scrape and import new Chrome versions from the Slimjet archive page into the local `chrome.json` database.
-
-```bash
-chromget import
 ```
 
 ---
@@ -216,7 +161,7 @@ npm run typecheck
 
 ## Data Source
 
-Chrome binaries are mirrored from the official [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) public storage via `mirror.yandex.ru`. The local `src/resources/chrome.json` acts as the release database, storing URLs, file sizes, and health-check status for every version and platform.
+Chrome release information is fetched dynamically from GitHub Releases, where the compiled and verified binaries are mirrored.
 
 ---
 

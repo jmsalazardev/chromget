@@ -54,11 +54,9 @@ program
   .command("list")
   .description("List all available Chrome versions in a formatted table")
   .argument("[majors...]", "Filter versions by Chrome major versions")
-  .option("--online", "Only show versions that have at least one online platform")
-  .option("--offline", "Only show versions that have at least one offline platform")
-  .action(async (majorsArg: string[], options) => {
+  .action(async (majorsArg: string[]) => {
     const majors = majorsArg.map(Number).filter((n) => !isNaN(n));
-    await runList(majors, options);
+    await runList(majors);
   });
 
 program.parseAsync().catch((err: unknown) => {
